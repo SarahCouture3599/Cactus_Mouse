@@ -1,0 +1,565 @@
+
+Install needed packages and load libs - not all libs might be used 
+```{r}
+library(devtools)
+library(tidyverse)
+library(lubridate)
+library(readr)
+library(patchwork)
+library(tidyselect)
+library(readxl)
+library(reshape)
+library(reshape2)
+library(data.table)
+library(grid)
+library(gridExtra)
+library(ggplot2)
+library(car)
+library(ggpubr)
+library(ggpmisc)
+library(rlist)
+library(broom)
+library(nlme)
+library(rstatix)
+library(compositions)
+library(maditr)
+library(RColorBrewer)
+library(mcp)
+library(EnvCpt)
+library(grDevices)
+library(ggfortify)
+library(tsbox)
+library(zoo)
+library(bcp)
+library(plyr)
+library(cowplot)
+library(broom)
+library(gridGraphics)
+library(ggsignif)
+library(usethis)
+library(ggpattern)
+
+```
+
+Cleaning data / organizing data 
+
+```{r}
+weight_ID("26-Feb-20")
+cages26feb <- merge_data(bring_in_data("feb26.csv", "M"))
+cages26feb$block <- "cages26feb"
+
+#DLS shift
+cages26feb$DateTime <-as.POSIXct(cages26feb$DateTime)
+cages26feb$StartTime <-as.POSIXct(cages26feb$StartTime)
+
+cages26feb$StartTime <- cages26feb$StartTime+ 1*60*60
+cages26feb$DateTime <- cages26feb$DateTime+ 1*60*60
+ 
+ggplot(cages26feb, aes(as.POSIXct(with(cages26feb, StartTime)),y=H2Omg))+
+  geom_point()+
+  scale_x_datetime(date_breaks = "3 hours", date_labels = "%H:%M")
+
+
+weight_ID("5-Mar-20")
+cages10mar <- merge_data(bring_in_data("mar10.csv", "M"))
+cages10mar$block <- "cages10mar"
+
+ggplot(cages10mar, aes(as.POSIXct(with(cages10mar, StartTime)),y=H2Omg))+
+  geom_point()+
+  scale_x_datetime(date_breaks = "3 hours", date_labels = "%H:%M")
+
+weight_ID("20-Feb-20")
+cages20feb <- merge_data(bring_in_data("feb20.csv", "F"))
+cages20feb$block <- "cages20feb"
+
+cages20feb$DateTime <-as.POSIXct(cages20feb$DateTime)
+cages20feb$StartTime <-as.POSIXct(cages20feb$StartTime)
+
+cages20feb$StartTime <- cages20feb$StartTime+ 1*60*60
+cages20feb$DateTime <- cages20feb$StartTime+ 1*60*60
+
+ggplot(cages20feb, aes(as.POSIXct(with(cages20feb, StartTime)),y=H2Omg))+
+  geom_point()+
+  scale_x_datetime(date_breaks = "3 hours", date_labels = "%H:%M")
+
+
+weight_ID("14-Mar-20")
+cages14mar <- merge_data(bring_in_data("mar14.csv", "F"))
+cages14mar$block <- "cages14mar"
+
+ggplot(cages14mar, aes(as.POSIXct(with(cages14mar, StartDate + hms(StartTime))),y=Deg_C))+
+  geom_line()
+
+
+weight_ID("13-Aug-20")
+cages13aug7 <- bring_in_data("13Aug20_7.csv", "F")
+
+cages13aug <- merge_data(rbind(cages13aug7))
+cages13aug$block <- "cages13aug"
+
+ggplot(cages13aug, aes(as.POSIXct(with(cages13aug, StartDate + hms(StartTime))),y=H2Omg))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  geom_point()
+
+weight_ID("21-Aug-20")
+cages21aug1 <- bring_in_data("21Aug20.csv", "M")
+
+
+cages21aug <- merge_data(rbind(cages21aug1))
+cages21aug$block <- "cages21aug"
+
+
+ggplot(cages21aug, aes(as.POSIXct(with(cages21aug, StartDate + hms(StartTime))),y=H2Omg))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  geom_point()
+
+
+weight_ID("25-Aug-20")
+cages25aug1 <- bring_in_data("14Sep20.csv", "M")
+
+
+cages25aug <- merge_data(rbind(cages25aug1))
+cages25aug$block <- "cages25aug"
+
+ggplot(cages25aug, aes(as.POSIXct(with(cages25aug, StartDate + hms(StartTime))),y=Deg_C))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  geom_line()
+
+weight_ID("18-Sep-20")
+cages18sep1 <- bring_in_data("18Sep20.csv", "F")
+
+
+cages18sep <- merge_data(rbind(cages18sep1))
+cages18sep$block <- "cages18sep"
+
+ggplot(cages18sep, aes(as.POSIXct(with(cages18sep, StartDate + hms(StartTime))),y=Deg_C))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  geom_line()
+```
+
+Final data sets 
+```{r}
+baseline <- rbind(cages26feb, cages10mar, cages20feb, cages14mar)
+baseline$experiment <- "Standard"
+baseline$FQ <- 0.8907387
+baseline$seconds <- as.numeric(baseline$StartTime)
+
+modified <- rbind(cages13aug,cages21aug,cages25aug,cages18sep)
+modified$experiment <- "Low Fat"
+modified$FQ <- 0.92266
+modified$seconds <- as.numeric(modified$StartTime)
+
+
+all_animals <- rbind(modified, baseline)
+```
+
+Establishing Intervals 
+```{r}
+#Daytime interval: hrs:8:00-21:00
+daytime_interval <- period_to_seconds(hms("09:00:00")):period_to_seconds(hms("20:00:00"))
+#Night time: hrs 22:00-5:00 (do NOT do a 22:5 sequence as it will count backwards from 22 to 5...)
+nighttime_interval <- c((period_to_seconds(hms("21:00:01")):period_to_seconds(hms("24:59:59"))), #evening portion of 'nighttime'
+                        (period_to_seconds(hms("00:00:00")):period_to_seconds(hms("06:00:00")))) #morning portion of 'nightitme'
+#Morning transition (t1): 6:00-9:00
+t1_interval <- period_to_seconds(hms("06:00:00")):period_to_seconds(hms("09:00:00"))
+#Evening transition (t2): 20-21:00
+t2_interval <- period_to_seconds(hms("20:00:00")):period_to_seconds(hms("21:00:00"))
+```
+
+Removing empty cages 
+```{r}
+target <- c(0,1,2,3,4,5,6)
+cages <- all_animals %>% filter(animal %in% target)
+```
+
+More data cleaning and getting data analysis ready!!
+```{r}
+analysis_data_final <- cages[,c("Sex","EE","H2Omg", "RQ","Animal_ID", "Deg_C", "weight", "experiment", "X1", "StartTime", "SD_VCO2", "SD_VO2", "SD_H2Omg", "VO2", "VCO2", "StartDate", "FQ", "block")]
+analysis_data_final$Sex <- as.factor(analysis_data_final$Sex)
+analysis_data_final$hour <- analysis_data_final$X1
+analysis_data_final$X1 <- NULL
+analysis_data_final$Deg_C <- as.double(analysis_data_final$Deg_C)
+analysis_data_final$Animal_ID <- as.numeric(analysis_data_final$Animal_ID)
+analysis_data_final$experiment <- as.factor(analysis_data_final$experiment)
+names(analysis_data_final)[3] <- "H2Omg"
+analysis_data_final$hour <- as.numeric(analysis_data_final$hour)
+unique(analysis_data_final$Animal_ID)
+```
+
+all_no0L = analysis_data_final 
+
+```{r}
+metric1 <- "RQ"
+
+measurement_one <- all_noOL %>%  dplyr::select(all_of(metric1))
+df<-as.data.frame(measurement_one[[metric1]])
+legend_title <- "Animal ID"
+
+RQ <- ggplot(data = all_noOL,aes(colour=factor(experiment),x=as.POSIXct(StartTime),y=measurement_one[[metric1]]))+
+  geom_point(aes(alpha=0.2, group=as.factor(experiment), color=as.factor(experiment)), size = 1)+
+  theme(axis.text.x = element_blank(), axis.text.y=element_text(size=12))+
+  geom_smooth(data=df$V1, method='loess', span=.4, level=0.99, size=1.5)+
+  labs(x = "", y = metric1)+
+  scale_color_manual(legend_title, values=c("#0571B0", "grey31", "blue"))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  #highfat
+  geom_hline(yintercept = 0.8907387, color='black', size=1.5)+
+  #lowfat
+  geom_hline(yintercept = 0.92266, color="white", size=1.5)+
+  ylim(0.5, 2)+
+  guides(alpha=FALSE)+
+  theme_classic()
+
+
+metric2 <- "EE"
+measurement_two <- all_noOL %>%  dplyr::select(all_of(metric2))
+df<-as.data.frame(measurement_two[[metric2]])
+legend_title <- "Animal ID"
+
+EE <- ggplot(data = all_noOL,aes(colour=factor(experiment),x=as.POSIXct(StartTime),y=measurement_two[[metric2]]))+
+  #geom_point(aes(alpha=0.2,group=as.factor(experiment), color=as.factor(experiment)), size = 1,)+
+  theme(axis.text.x = element_blank(), axis.text.y=element_text(size=12), legend.position = "none")+
+  geom_smooth(data=df$V1, method='loess', span=.4, level=0.99)+
+  labs(x = "", y = metric2)+
+  scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+  theme_classic()+
+  facet_grid(cols = vars(Sex))
+
+metric3 <- "H2Omg"
+
+measurement_three <- all_noOL %>%  dplyr::select(all_of(metric3))
+df<-as.data.frame(measurement_three[[metric3]])
+legend_title <- "Animal ID"
+
+h2o <- ggplot(data = all_noOL,aes(colour=factor(experiment),x=as.POSIXct(StartTime),y=measurement_three[[metric3]]))+
+  geom_point(aes(alpha=0.2,group=as.factor(experiment), color=as.factor(experiment)), size = 1)+
+  theme(axis.text.y=element_text(size=12), legend.position = "none", axis.text.x=element_text(size=12))+
+  geom_smooth(data=df$V1, method='loess', span=.1, level=0.99)+
+  labs(x = "", y = metric3)+
+  scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+  scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")
+```
+
+Changing data types 
+```{r}
+data <- read_csv("diet_analysis_data.csv", 
+                 col_types = cols(Sex = col_character(),
+                                  EE = col_double(),
+                                  H2Omg = col_double(),
+                                  RQ = col_double(),
+                                  Animal_ID = col_character(),
+                                  Deg_C = col_double(),
+                                  weight = col_double(),
+                                  experiment = col_character(),
+                                  StartTime = col_character(), #col_time(format = "%H:%M:%S"), - changed for easy use of lubridate
+                                  SD_VCO2 = col_double(),
+                                  SD_VO2 = col_double(),
+                                  SD_H2Omg = col_double(),
+                                  VO2 = col_double(),
+                                  VCO2 = col_double(),
+                                  StartDate = col_date(format = "%Y-%m-%d"), 
+                                  hour = col_integer()))
+
+all_M = data[data$Sex == 'M', ]
+all_F = data[data$Sex == 'F', ]
+```
+
+Weight and electrolyte data 
+```{r}
+electrolyte_data <- read.csv("~/Box Sync/Cactus_Mouse_Physiology/data/electrolyte_data.csv")
+
+subset1 <- subset(electrolyte_data, electrolyte_data$experiment == "5015_lowfat")
+subset2 <- subset(electrolyte_data, electrolyte_data$experiment == "baseline")
+
+diet <- rbind(subset1, subset2)
+
+diet$experiment <- as.factor(diet$experiment)
+diet$sex <- as.factor(diet$sex)
+
+diet_exp <- diet %>% select(1, 4)
+diet_exp$experiment <- as.factor(diet_exp$experiment)
+diet_exp$weight <- as.numeric(diet_exp$weight)
+t.test(diet_exp$weight~diet_exp$experiment)
+
+diet_sex <- diet %>% select(2, 4)
+diet_sex$sex <- as.factor(diet_sex$sex)
+diet_sex$weight <- as.numeric(diet_sex$weight)
+t.test(diet_sex$weight~diet_sex$sex)
+
+
+electros <- diet %>% select(1,5:ncol(diet))
+lapply(electros[-1], function(x) t.test(x ~ electros$experiment))
+
+electros <- diet %>% select(2,5:ncol(diet))
+lapply(electros[-1], function(x) t.test(x ~ electros$sex))
+```
+
+Interval Plots
+```{r}
+ylim <- max(all_noOL$mgH2O)-3000
+mgh2o<-ggplot(all_noOL, aes(x = diet, y = mgH2O, color= diet)) +
+  geom_violin(size = .75) +
+  geom_jitter(alpha = .5) +
+  stat_compare_means(aes(group=diet), label = "p.signif", method="t.test", label.y = ylim)+
+  facet_grid(rows = vars(sex), cols = vars(interval)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),legend.position = "none")+
+  scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+  scale_x_discrete(labels = c("standard diet", "low fat diet"))
+
+ylim <- max(all_noOL$EE)-2000
+EE <- ggplot(all_noOL, aes(x = diet, y = EE, color= diet)) +
+  geom_violin(size = .75) +
+  geom_jitter(alpha = .5) +
+  stat_compare_means(aes(group=diet), label = "p.signif", method="t.test", label.y = ylim)+
+  facet_grid(rows = vars(sex), cols = vars(interval)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),legend.position = "none")+
+  scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+  scale_x_discrete(labels = c("standard diet", "low fat diet"))
+
+
+ylim <- max(all_noOL$RQ)-10000
+RQ <- ggplot(all_noOL, aes(x = diet, y = RQ, color= diet)) +
+  geom_violin(size = .75) +
+  geom_jitter(alpha = .5) +
+  stat_compare_means(aes(group=diet), label = "p.signif", method="t.test", label.y = ylim)+
+  facet_grid(rows = vars(sex), cols = vars(interval)) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),legend.position = "none")+
+  scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+  scale_x_discrete(labels = c("standard diet", "low fat diet"))
+```
+
+Electros
+```{r}
+electrolyte_data_diet_select <- electrolyte_data_diet[,c("experiment","sex","weight","mouse_ID", "Na", "K", "Crea", "BUN", "Hct", "iCa")]
+plist_electro <- list()
+
+all_electro_T <- melt(electrolyte_data_diet_select, id.vars = c("experiment","sex", "weight", "mouse_ID"), variable.name = "electro")
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "Na")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["Na"]] <-all_electro_s %>%
+  ggplot(aes(x="Na", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim+.1)+
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020"))+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme( plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank()) +
+  xlab("")+
+  ylab("")+
+  labs(title= "Na")+
+  expand_limits(y=c(NA, ylim+2))+
+  facet_wrap(~sex)
+save("Na", 13,10, plist_electro[["Na"]])
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "K")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["K"]] <-all_electro_s %>%
+  ggplot(aes(x="K", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim+1)+
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020"))+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank()) +
+  xlab("")+
+  ylab("")+
+  labs(title= "K")+
+  expand_limits(y=c(NA, ylim+2))+
+  facet_wrap(~sex)
+save("K", 13,10, plist_electro[["K"]])
+
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "Crea")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["Crea"]] <-all_electro_s %>%
+  ggplot(aes(x="Crea", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim+.006)+
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020"))+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank()) +
+  xlab("")+
+  ylab("")+
+  scale_y_continuous(labels = scales::number_format(accuracy = 0.01))+
+  labs(title= "Crea")+
+  expand_limits(y=c(NA, ylim+.008))+
+  facet_wrap(~sex)
+save("Crea", 13,10, plist_electro[["Crea"]])
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "BUN")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["BUN"]] <-all_electro_s %>%
+  ggplot(aes(x="BUN", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim)+
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020"))+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank()) +
+  xlab("")+
+  ylab("")+
+  labs(title= "BUN")+
+  expand_limits(y=c(NA, ylim+2.5))+
+  facet_wrap(~sex)
+save("BUN", 13,10, plist_electro[["BUN"]])
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "Hct")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["Hct"]] <-all_electro_s %>%
+  ggplot(aes(x="Hct", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim)+
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020"))+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank()) +
+  labs(title= "Hct")+
+  xlab("")+
+  ylab("")+
+  expand_limits(y=c(NA, ylim+2.7))+
+  facet_wrap(~sex)
+save("Hct", 13,10, plist_electro[["Hct"]])
+
+all_electro_s <- subset(all_electro_T, all_electro_T$electro == "iCa")
+ylim <- max(all_electro_s$value, na.rm = TRUE)
+plist_electro[["iCa"]] <-all_electro_s %>%
+  ggplot(aes(x="iCa", y=value, fill=experiment),na.rm = FALSE) +
+  geom_violin(width=1, size=0.5, alpha = 0.8) +
+  stat_compare_means(aes(group=experiment), label = "p.signif", method="t.test",na.rm = FALSE, label.y = ylim+.1)+
+  geom_jitter(color="black", size=0.4, alpha=0.9) +
+  theme(plot.title = element_text(face = "bold", size = (15),family = "Helvetica",hjust = 0.5),axis.text.x=element_blank(),legend.position="bottom") +
+  scale_fill_manual(values=c( "grey31", "#0571B0", "#CA0020", labels = c("standard diet", "low fat diet")))+
+  labs(title= "iCa")+
+  xlab("")+
+  ylab("")+
+  expand_limits(y=c(NA, ylim+.2))+
+  facet_wrap(~sex)
+save("iCa", 13,10, plist_electro[["iCa"]])
+
+electo_plots <- gridExtra::grid.arrange(grobs = plist_electro)
+save("electo_plots", 15,15, electo_plots)
+```
+
+#temp plot
+######################################################################################
+```{r}
+metric0 <- "Deg_C"
+target <- 7
+#the "cages20april" is what you will need to change to look at whatever temperature you are interest in
+cagetemp <- cages18sep %>% filter(animal %in% target)
+cagetemp <- tail(cagetemp, n=320)
+measurement_zero1 <- cagetemp %>%  dplyr::select(all_of(metric0))
+df<-as.data.frame(measurement_zero1[[metric0]])
+measurement_zero2 <- cagetemp %>%  dplyr::select(all_of("H2O_WVP"))
+df<-as.data.frame(measurement_zero2[["H2O_WVP"]])
+
+cagetemp$seconds <- as.numeric(cagetemp$StartTime)
+
+temp <- ggplot(data = cagetemp,aes(x=seconds)) +
+  geom_rect(data = cages, aes(xmin = 0 , xmax = 21600, ymin = -Inf, ymax = Inf, alpha = 0.4), fill = "grey", color = "grey")+
+  geom_rect(data = cages, aes(xmin = 72000 , xmax = 86400, ymin = -Inf, ymax = Inf,alpha = 0.4),fill = "grey", color = "grey")+
+  geom_line(aes(y =measurement_zero1[[metric0]], color= "darkorchid")) +
+  labs(x = "", y = "degrees celsius") +
+  theme(axis.title = element_text(size = 15))+
+  scale_x_continuous(expand = c(0, 0))+
+  theme_classic()+
+  theme(legend.position = "none")
+```
+
+
+Diet multi plot 
+```{r}
+cages_diet <- cages[,c("Sex","EE","H2Omg", "RQ", "Deg_C", "weight", "experiment", "StartTime", "FQ")]
+
+col_names <- names(cages_diet)
+col_names <- col_names[2:4]
+
+plot_list <- list()
+for (i in col_names){
+  if (i=="RQ")
+  {
+    plot <- ggplot(cages_diet, aes_string(x=cages_diet$StartTime, y=i, color=as.factor(cages_diet$experiment))) +
+      geom_rect(data = cages, aes(xmin = 0 , xmax = 21600, ymin = -Inf, ymax = Inf, alpha = 0.4), fill = "grey", color = "grey")+
+      geom_rect(data = cages, aes(xmin = 72000 , xmax = 86400, ymin = -Inf, ymax = Inf,alpha = 0.4),fill = "grey", color = "grey")+
+      geom_point(aes(alpha=0.3,group=as.factor(experiment), color=as.factor(experiment)), size = 1)+
+      geom_smooth(data=df$V1, method='loess', span=.1, level=0.99)+
+      labs(x = "seconds", y = i)+
+      #scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+      theme_classic()+
+      #geom_hline(aes(yintercept=FQ))+
+      ylim(0.5, 2)+
+      guides(alpha = FALSE)+
+      scale_color_manual(values=c("#0571B0", "grey31", "blue"),name = "", labels = c("standard diet", "low fat diet"))+
+      theme(legend.position="bottom", axis.text.x=element_blank())+
+      scale_x_continuous(expand = c(0, 0))+
+      facet_grid(cols = vars(Sex))
+    plot_list[[i]] <- plot
+  }
+  else
+  {
+    plot <- ggplot(cages_diet, aes_string(x=cages_diet$StartTime, y=i, color=as.factor(cages_diet$experiment))) +
+      geom_rect(data = cages, aes(xmin = 0 , xmax = 21600, ymin = -Inf, ymax = Inf, alpha = 0.4), fill = "grey", color = "grey")+
+      geom_rect(data = cages, aes(xmin = 72000 , xmax = 86400, ymin = -Inf, ymax = Inf,alpha = 0.4),fill = "grey", color = "grey")+
+      geom_point(aes(alpha=0.3,group=as.factor(experiment), color=as.factor(experiment)), size = 1)+
+      geom_smooth(data=df$V1, method='loess', span=.1, level=0.99)+
+      labs(x = "", y = i)+
+      #scale_x_datetime(date_breaks = "2 hours", date_labels = "%H:%M")+
+      theme_classic()+
+      guides(alpha = FALSE)+
+      scale_color_manual(values=c("#0571B0", "grey31", "blue"))+
+      theme(legend.position = "none", axis.text.x=element_blank())+
+      scale_x_continuous(expand = c(0, 0)) + scale_y_continuous(expand = c(0, 0))+
+      facet_grid(cols = vars(Sex))
+    plot_list[[i]] <- plot
+  }
+}
+```
+
+```{r}
+remotes::install_github("coolbutuseless/ggpattern")
+library(ggpattern)
+
+p1 <- ggplot(all_noOL, aes(x=interval, y=RQ, fill = trt))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#0571B0", "grey31", "#0571B0", "grey31"),name = "treatment", labels = c("standard diet", "low fat diet"))+
+  geom_boxplot_pattern(aes(pattern = sex), pattern_spacing = 0.05) +
+  labs(y = "AUC of RQ")+
+  geom_signif(
+    #y_position = c(5.3, 8.3), xmin = c(0.8, 1.8), xmax = c(1.2, 2.2),
+    annotation = c("**", "NS"), tip_length = 0) +
+  geom_signif(comparisons = list(c("S1", "S2")), y_position = 9.3, tip_length = 0, vjust = 0.2) +
+  theme(legend.position = "none")
+
+p2<-ggplot(auc_data, aes(x=interval, y=EE, fill = trt))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#0571B0", "grey31", "#0571B0", "grey31"),name = "treatment", labels = c("standard diet", "low fat diet"))+
+  geom_boxplot_pattern(aes(pattern = sex), pattern_spacing = 0.05) +
+  labs(y = "AUC of EE")+
+  theme(legend.position = "none")
+
+p3<-ggplot(auc_data, aes(x=interval, y=mgH2O, fill = trt))+
+  geom_boxplot()+
+  scale_fill_manual(values=c("#0571B0", "grey31", "#0571B0", "grey31"),name = "treatment", labels = c("standard diet", "low fat diet"))+
+  geom_boxplot_pattern(aes(pattern = sex), pattern_spacing = 0.05) +
+  labs(y = "AUC of RWL")+
+  theme(legend.position = "none")
+
+
+p2|p3|p1
+
+save("auc", 35, 15, p3|p2|p1)
+save("auc_legond", 15, 25, p4)
+
+RQ/H2Omg/EE
+delta_temp/body_temp
+delta_weight/weight
+```
+
+Figure 4 
+```{r}
+ggplot(data = all_noOL, aes(x = experiment, y = H2Omg, color = Sex)) + geom_smooth(method = 'glm', method.args=list(family='binomial'))+geom_boxplot()
+```
+
+```{r}
+ggplot(data = all_noOL, aes(x = hour, y = H2Omg, color = experiment)) + geom_smooth(method = 'glm', method.args=list(family='binomial'))+geom_point()
+```
+
+
